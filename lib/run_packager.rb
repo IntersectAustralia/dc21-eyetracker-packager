@@ -58,7 +58,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   fso.Drives.each do |drive|
     if drive.IsReady and !drive.VolumeName.to_s.eql?("")
       display = "#{drive.DriveLetter}:"
-      display << " (#{drive.VolumeName})" 
+      display << " (#{drive.VolumeName})"
       available_drives <<  display
     end
   end
@@ -264,11 +264,11 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     end
     log_writer.log_message('INFO',"  #{File.basename(session_folder)} processed.")
   end
-  
+
   log_writer.log_message('INFO',"Imported #{source_path} to #{transfer_path}.")
   puts ""
 
-  log_writer.flush_current(calculate_filename(transfer_path,"eT-SD#{label}-Manifest.txt"))
+  log_writer.flush_current(calculate_filename(transfer_path,"eT-SD#{label}-Manifest-#{Time.now.strftime("%Y%m%d")}.txt"))
 
   if interactive
     puts "Please insert a new card if required and then press Enter to continue."
