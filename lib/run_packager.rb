@@ -204,8 +204,8 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     session_glasses = Dir[File.join(session_folder,"*.{log,dbg,raw,dat}")].sort
     session_remainder = session_all - session_glasses
 
-    session_images = session_remainder.select{|a| File.mime_type?(a)[/^image/]}
-    session_audio = session_remainder.select{|a| File.mime_type?(a)[/^audio/]}
+    session_images = session_remainder.select{|a| !File.mime_type?(a)[/^image/].nil?}
+    session_audio = session_remainder.select{|a| !File.mime_type?(a)[/^audio/].nil?}
     session_others = session_remainder - session_audio - session_images
 
     session_cdate = File.ctime(session_folder).strftime("%Y%m%d")
@@ -238,7 +238,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     end
 
     #image
-    if session_audio.empty?
+    if session_images.empty?
       log_writer.log_message('INFO',"    #{File.basename(session_folder)} does not contain image files; Ignoring.")
     else
       log_writer.log_message('INFO',"    Copying EyeTracker #{File.basename(session_folder)} image files...")
