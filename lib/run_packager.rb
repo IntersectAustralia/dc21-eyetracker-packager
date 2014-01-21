@@ -120,7 +120,9 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   log_writer.log_message('INFO',"Using #{label} as volume label...")
   puts ""
 
-  root_logs = Dir[File.join(source_path,"*.log")].sort
+  root_logs = Dir[File.join(source_path,"*.log")].select do |log|
+    !File.basename(log)[/^\d{4}-\d{2}-\d{2}/].nil?
+  end
   root_sessions = Dir[File.join(source_path,"Session_*")].sort_by {|e| e.split(/(\d+)/).map {|a| a =~ /\d+/ ? a.to_i : a }}
   root_remainder = Dir[File.join(source_path, '*')] - root_logs - root_sessions
   root_images = root_remainder.select{|a| File.mime_type?(a)[/^image/]}
@@ -144,16 +146,20 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   if root_logs.empty?
     log_writer.log_message('INFO',"  No EyeTracker logs found; Ignoring.")
   else
-    log_dates = root_logs.collect{|log| File.ctime(log).strftime("%Y-%m-%d")}.uniq
+    log_dates = root_logs.collect{|log| File.basename(log)[/^\d{4}-\d{2}-\d{2}/] }.uniq
 
     log_dates.each do |log_date|
       log_writer.log_message('INFO',"  Zipping EyeTracker logs for #{log_date}...")
       root_log_zip = calculate_filename(transfer_path,"eT-SD#{label}-LOGS-#{log_date.gsub('-', '')}.zip")
-      Archive::Zip.archive(root_log_zip, Dir[File.join(source_path, log_date + "*.log")])
-      log_writer.log_message('INFO',"    Created #{root_log_zip}.")
+      files = Dir[File.join(source_path, log_date + "*.log")]
+      Archive::Zip.archive(root_log_zip, files)
+      log_writer.log_message('INFO',"    Created #{root_log_zip} with:")
+      files.each do |file|
+        log_writer.log_message('INFO',"      - #{file}")
+      end
     end
-    puts ""
   end
+  puts ""
   ### End Root Logs
 
   ###### Root Images
@@ -171,7 +177,10 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
       log_writer.log_message('INFO',"  Zipping EyeTracker images for #{cdate}...")
       root_images_zip = calculate_filename(transfer_path,"eT-SD#{label}-IMAGES-#{cdate}.zip")
       Archive::Zip.archive(root_images_zip, files)
-      log_writer.log_message('INFO',"    Created #{root_images_zip}.")
+      log_writer.log_message('INFO',"    Created #{root_images_zip} with:")
+      files.each do |file|
+        log_writer.log_message('INFO',"      - #{file}")
+      end
     end
   end
 
@@ -186,8 +195,10 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     root_others_cdate = File.ctime(root_logs[0] || root_others[0]).strftime("%Y%m%d")
     root_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-OTHERS-#{root_others_cdate}.zip")
     Archive::Zip.archive(root_others_zip, root_others)
-    log_writer.log_message('INFO',"    Created #{root_others_zip}.")
-
+    log_writer.log_message('INFO',"    Created #{root_others_zip} with:")
+    root_others.each do |file|
+      log_writer.log_message('INFO',"      - #{file}")
+    end
   end
   puts ""
 
@@ -217,7 +228,10 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
       transfer_name = "eT-SD#{label}-#{File.basename(session_folder)}-GLASSES-#{session_cdate}.zip"
       session_glasses_zip = calculate_filename(transfer_path, transfer_name)
       Archive::Zip.archive(session_glasses_zip, session_glasses)
-      log_writer.log_message('INFO',"    Created #{session_glasses_zip}.")
+      log_writer.log_message('INFO',"    Created #{session_glasses_zip} with:")
+      session_glasses.each do |file|
+        log_writer.log_message('INFO',"      - #{file}")
+      end
     end
 
     #audio
@@ -233,7 +247,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
         transfer_name =  filename.gsub(/^/, "eT-SD#{label}-#{File.basename(session_folder)}-INTERVIEW-").sub(extension, "-#{audio_cdate}#{extension}")
         new_path = calculate_filename(transfer_path,transfer_name)
         FileUtils.cp audio, new_path
-        log_writer.log_message('INFO',"      Copied #{filename}.")
+        log_writer.log_message('INFO',"      - #{audio}")
       end
     end
 
@@ -250,7 +264,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
         transfer_name =  filename.gsub(/^/, "eT-SD#{label}-#{File.basename(session_folder)}-DOCKET-").sub(extension, "-#{image_cdate}#{extension}")
         new_path = calculate_filename(transfer_path,transfer_name)
         FileUtils.cp image, new_path
-        log_writer.log_message('INFO',"      Copied #{filename}.")
+        log_writer.log_message('INFO',"      - #{image}")
       end
     end
 
@@ -260,7 +274,10 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     else
       session_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{File.basename(session_folder)}-OTHERS-#{session_cdate}.zip")
       Archive::Zip.archive(session_others_zip, session_others)
-      log_writer.log_message('INFO',"    Created #{session_others_zip}.")
+      log_writer.log_message('INFO',"    Created #{session_others_zip} with:")
+      session_others.each do |file|
+        log_writer.log_message('INFO',"      - #{file}")
+      end
     end
     log_writer.log_message('INFO',"  #{File.basename(session_folder)} processed.")
   end
