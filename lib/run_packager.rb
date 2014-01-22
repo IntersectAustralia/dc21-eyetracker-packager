@@ -121,7 +121,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   puts ""
 
   root_logs = Dir[File.join(source_path,"*.log")].select do |log|
-    !File.basename(log)[/^\d{4}-\d{2}-\d{2}/].nil?
+    !File.basename(log)[/^\d{4}-\d{2}-\d{2}__\d\d_\d\d_\d\d\.log$/].nil?
   end
   root_sessions = Dir[File.join(source_path,"Session_*")].sort_by {|e| e.split(/(\d+)/).map {|a| a =~ /\d+/ ? a.to_i : a }}
   root_remainder = Dir[File.join(source_path, '*')] - root_logs - root_sessions
@@ -151,7 +151,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     log_dates.each do |log_date|
       log_writer.log_message('INFO',"  Zipping EyeTracker logs for #{log_date}...")
       root_log_zip = calculate_filename(transfer_path,"eT-SD#{label}-LOGS-#{log_date.gsub('-', '')}.zip")
-      files = Dir[File.join(source_path, log_date + "*.log")]
+      files = root_logs.select{|log| File.basename(log)[/^#{log_date}/] }
       Archive::Zip.archive(root_log_zip, files)
       log_writer.log_message('INFO',"    Created #{root_log_zip} with:")
       files.each do |file|
