@@ -53,6 +53,7 @@ end
 
 
 def extract_sessions(transfer_path, log_writer, interactive = false)
+
   fso = WIN32OLE.new('Scripting.FileSystemObject')
   available_drives = []
   fso.Drives.each do |drive|
@@ -72,22 +73,23 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   if interactive
     puts "Please enter the drive letter or path you wish to import"
     puts "or press Ctrl + C twice to exit:"
-    source_path = STDIN.gets.strip
+    original_source = STDIN.gets.strip
   else
-    source_path = ARGV[1].dup
+    original_source = ARGV[1].dup
   end
 
   #convert backslashes to slash
-  source_path.gsub!(/\\/, "/")
+  original_source.gsub!(/\\/, "/")
 
-  if source_path[/^\w$/]
-    source_path = source_path + ':/'
-  elsif source_path[/^\w:$/]
-    source_path = source_path + '/'
+  if original_source[/^\w$/]
+    original_source = original_source + ':/'
+  elsif original_source[/^\w:$/]
+    original_source = original_source + '/'
   end
 
-  if !Dir.exists?(source_path)
-    log_writer.log_message('ERROR',"The path #{source_path} does not exist.")
+  # check if path exists
+  if !Dir.exists?(original_source)
+    log_writer.log_message('ERROR',"The path #{original_source} does not exist.")
     log_writer.log_message('INFO', 'Aborting...')
     puts ""
     if interactive
@@ -99,8 +101,8 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   end
 
   # if it's just the drive, get the volume label
-  if source_path[/^\w:\/$/]
-    label = fso.getDrive(source_path).VolumeName
+  if original_source[/^\w:\/$/]
+    label = fso.getDrive(original_source).VolumeName
     if label.to_s.strip.eql?("")
       log_writer.log_message('ERROR','The drive specified does not have a volume label.')
       log_writer.log_message('INFO', 'Aborting...')
@@ -113,23 +115,36 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
       end
     end
   else
-    label = File.basename(source_path)
+    label = File.basename(original_source)
   end
 
-  log_writer.log_message('INFO',"Importing #{source_path} to #{transfer_path}...")
+  log_writer.log_message('INFO',"Importing #{original_source} to #{transfer_path}...")
+
+  # Copy files onto computer first
+  log_writer.log_message('INFO', "Copying to tmp folder...")
+
+  tmp_file_path = File.join(File.dirname(__FILE__), '..' , 'tmp', label)
+
+  system "robocopy #{original_source} #{tmp_file_path} /MIR /ZB /COPYALL /XA:SHT /E /DCOPY:T /R:10 /NP /LOG+:robocopy.log /TEE"
+
+  puts ""
+
   log_writer.log_message('INFO',"Using #{label} as volume label...")
   puts ""
+
+  source_path = tmp_file_path
 
   root_logs = Dir[File.join(source_path,"*.log")].select do |log|
     !File.basename(log)[/^\d{4}-\d{2}-\d{2}__\d\d_\d\d_\d\d\.log$/].nil?
   end
+
   root_sessions = Dir[File.join(source_path,"Session_*")].sort_by {|e| e.split(/(\d+)/).map {|a| a =~ /\d+/ ? a.to_i : a }}
   root_remainder = Dir[File.join(source_path, '*')] - root_logs - root_sessions
   root_images = root_remainder.select{|a| File.mime_type?(a)[/^image/]}
   root_others = root_remainder - root_images
 
   if root_logs.empty? and root_sessions.empty?
-    log_writer.log_message('ERROR', "No Eyetracker Session folders or logs detected in #{source_path}.")
+    log_writer.log_message('ERROR', "No Eyetracker Session folders or logs detected in #{original_source}.")
     log_writer.log_message('INFO', 'Aborting...')
     puts ""
 
@@ -155,10 +170,11 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
       Archive::Zip.archive(root_log_zip, files)
       log_writer.log_message('INFO',"    Created #{root_log_zip} with:")
       files.each do |file|
-        log_writer.log_message('INFO',"      - #{file}")
+        log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
       end
     end
   end
+
   puts ""
   ### End Root Logs
 
@@ -179,7 +195,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
       Archive::Zip.archive(root_images_zip, files)
       log_writer.log_message('INFO',"    Created #{root_images_zip} with:")
       files.each do |file|
-        log_writer.log_message('INFO',"      - #{file}")
+        log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
       end
     end
   end
@@ -197,7 +213,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     Archive::Zip.archive(root_others_zip, root_others)
     log_writer.log_message('INFO',"    Created #{root_others_zip} with:")
     root_others.each do |file|
-      log_writer.log_message('INFO',"      - #{file}")
+      log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
     end
   end
   puts ""
@@ -230,7 +246,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
       Archive::Zip.archive(session_glasses_zip, session_glasses)
       log_writer.log_message('INFO',"    Created #{session_glasses_zip} with:")
       session_glasses.each do |file|
-        log_writer.log_message('INFO',"      - #{file}")
+        log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
       end
     end
 
@@ -247,7 +263,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
         transfer_name =  filename.gsub(/^/, "eT-SD#{label}-#{File.basename(session_folder)}-INTERVIEW-").sub(extension, "-#{audio_cdate}#{extension}")
         new_path = calculate_filename(transfer_path,transfer_name)
         FileUtils.cp audio, new_path
-        log_writer.log_message('INFO',"      - #{audio}")
+        log_writer.log_message('INFO',"      - #{audio.gsub(source_path + '/', "")}")
       end
     end
 
@@ -264,7 +280,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
         transfer_name =  filename.gsub(/^/, "eT-SD#{label}-#{File.basename(session_folder)}-DOCKET-").sub(extension, "-#{image_cdate}#{extension}")
         new_path = calculate_filename(transfer_path,transfer_name)
         FileUtils.cp image, new_path
-        log_writer.log_message('INFO',"      - #{image}")
+        log_writer.log_message('INFO',"      - #{image.gsub(source_path + '/', "")}")
       end
     end
 
@@ -276,16 +292,24 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
       Archive::Zip.archive(session_others_zip, session_others)
       log_writer.log_message('INFO',"    Created #{session_others_zip} with:")
       session_others.each do |file|
-        log_writer.log_message('INFO',"      - #{file}")
+        log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
       end
     end
     log_writer.log_message('INFO',"  #{File.basename(session_folder)} processed.")
   end
 
-  log_writer.log_message('INFO',"Imported #{source_path} to #{transfer_path}.")
+  puts ""
+
+  # Remove robocopied files
+  FileUtils.rm_rf source_path
+  log_writer.log_message('INFO',"Cleaned temporary folder.")
+  puts ""
+
+  log_writer.log_message('INFO',"Imported #{original_source} to #{transfer_path}.")
   puts ""
 
   log_writer.flush_current(calculate_filename(transfer_path,"eT-SD#{label}-Manifest-#{Time.now.strftime("%Y%m%d")}.txt"))
+
 
   if interactive
     puts "Please insert a new card if required and then press Enter to continue."
