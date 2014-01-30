@@ -121,187 +121,209 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   log_writer.log_message('INFO',"Importing #{original_source} to #{transfer_path}...")
 
   # Copy files onto computer first
-  log_writer.log_message('INFO', "Copying to tmp folder...")
+  log_writer.log_message('INFO',"  Copying to tmp folder...")
 
-  tmp_file_path = File.join(File.dirname(__FILE__), '..' , 'tmp', label)
+  package_tmp_path = File.expand_path(File.join(File.dirname(__FILE__), '..' , 'tmp', label))
 
-  system *%W(robocopy #{original_source} #{tmp_file_path} /MIR /ZB /COPYALL /XA:SHT /E /DCOPY:T /R:10 /NP /LOG+:robocopy.log /TEE)
+  #clear off tmp folder before continuing
+  FileUtils.rm_rf Dir[File.join(File.expand_path("..", package_tmp_path), '*')]
+
+  system *%W(robocopy #{original_source} #{package_tmp_path} /MIR /ZB /COPYALL /XA:SHT /E /DCOPY:T /R:10 /NP /LOG+:robocopy.log /TEE)
 
   puts ""
 
   log_writer.log_message('INFO',"Using #{label} as volume label...")
   puts ""
 
-  source_path = tmp_file_path
 
-  root_logs = Dir[File.join(source_path,"*.log")].select do |log|
-    !File.basename(log)[/^\d{4}-\d{2}-\d{2}__\d\d_\d\d_\d\d\.log$/].nil?
-  end
-
-  root_sessions = Dir[File.join(source_path,"Session_*")].sort_by {|e| e.split(/(\d+)/).map {|a| a =~ /\d+/ ? a.to_i : a }}
-  root_remainder = Dir[File.join(source_path, '*')] - root_logs - root_sessions
-  root_images = root_remainder.select{|a| File.mime_type?(a)[/^image/]}
-  root_others = root_remainder - root_images
-
-  if root_logs.empty? and root_sessions.empty?
-    log_writer.log_message('ERROR', "No Eyetracker Session folders or logs detected in #{original_source}.")
-    log_writer.log_message('INFO', 'Aborting...')
-    puts ""
-
-    if interactive
-      return
-    else
-      log_writer.close
-      exit
-    end
-  end
-
-  ###### Root Logs
-  log_writer.log_message('INFO',"Zipping EyeTracker logs...")
-  if root_logs.empty?
-    log_writer.log_message('INFO',"  No EyeTracker logs found; Ignoring.")
-  else
-    log_dates = root_logs.collect{|log| File.basename(log)[/^\d{4}-\d{2}-\d{2}/] }.uniq
-
-    log_dates.each do |log_date|
-      log_writer.log_message('INFO',"  Zipping EyeTracker logs for #{log_date}...")
-      root_log_zip = calculate_filename(transfer_path,"eT-SD#{label}-LOGS-#{log_date.gsub('-', '')}.zip")
-      files = root_logs.select{|log| File.basename(log)[/^#{log_date}/] }
-      Archive::Zip.archive(root_log_zip, files)
-      log_writer.log_message('INFO',"    Created #{root_log_zip} with:")
-      files.each do |file|
-        log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
-      end
-    end
-  end
-
-  puts ""
-  ### End Root Logs
-
-  ###### Root Images
-  log_writer.log_message('INFO',"Zipping EyeTracker images...")
-  if root_images.empty?
-    log_writer.log_message('INFO',"  No EyeTracker images found; Ignoring.")
-  else
-    root_image_hash = {}
-    root_images.each do |image|
-      created_at = File.ctime(image).strftime("%Y%m%d")
-      root_image_hash[created_at] ||= []
-      root_image_hash[created_at] << image
-    end
-    root_image_hash.each do |cdate,files|
-      log_writer.log_message('INFO',"  Zipping EyeTracker images for #{cdate}...")
-      root_images_zip = calculate_filename(transfer_path,"eT-SD#{label}-IMAGES-#{cdate}.zip")
-      Archive::Zip.archive(root_images_zip, files)
-      log_writer.log_message('INFO',"    Created #{root_images_zip} with:")
-      files.each do |file|
-        log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
-      end
-    end
-  end
-
-  puts ""
-  ### End Root Images
+  root_projects = Dir[File.join(package_tmp_path, '*')].select {|e| File.directory?(e) && File.basename(e).size <= 20}
+  root_others = Dir[File.join(package_tmp_path, '*')] - root_projects
 
   ###### Root Others
-  log_writer.log_message('INFO',"Zipping EyeTracker others...")
+  log_writer.log_message('INFO',"Zipping root others...")
   if root_others.empty?
-    log_writer.log_message('INFO',"  No EyeTracker others found; Ignoring.")
+    log_writer.log_message('INFO',"  No root others found; Ignoring.")
   else
-    root_others_cdate = File.ctime(root_logs[0] || root_others[0]).strftime("%Y%m%d")
+    root_others_cdate = File.ctime(root_others[0]).strftime("%Y%m%d")
     root_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-OTHERS-#{root_others_cdate}.zip")
     Archive::Zip.archive(root_others_zip, root_others)
     log_writer.log_message('INFO',"    Created #{root_others_zip} with:")
     root_others.each do |file|
-      log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
+      log_writer.log_message('INFO',"      - #{file.gsub(package_tmp_path + '/', "")}")
     end
   end
   puts ""
 
   ### End Root Others
 
-  ###### EyeTracker sessions
-  log_writer.log_message('INFO',"Processing EyeTracker sessions...")
-  puts ""
+  ### Process Each Project
+  root_projects.each do |source_path|
 
-  root_sessions.each do |session_folder|
-    log_writer.log_message('INFO',"  Processing EyeTracker #{File.basename(session_folder)}...")
-    session_all = Dir[File.join(session_folder,"*.*")].sort
+    project = File.basename(source_path)
 
-    session_glasses = Dir[File.join(session_folder,"*.{log,dbg,raw,dat}")].sort
-    session_remainder = session_all - session_glasses
+    log_writer.log_message('INFO',"Processing #{project}...")
+    puts ""
 
-    session_images = session_remainder.select{|a| !File.mime_type?(a)[/^image/].nil?}
-    session_audio = session_remainder.select{|a| !File.mime_type?(a)[/^audio/].nil?}
-    session_others = session_remainder - session_audio - session_images
+    project_logs = Dir[File.join(source_path,"*.log")].select do |log|
+      !File.basename(log)[/^\d{4}-\d{2}-\d{2}__\d\d_\d\d_\d\d\.log$/].nil?
+    end
 
-    session_cdate = File.ctime(session_folder).strftime("%Y%m%d")
+    project_sessions = Dir[File.join(source_path,"Session_*")].sort_by {|e| e.split(/(\d+)/).map {|a| a =~ /\d+/ ? a.to_i : a }}
+    project_remainder = Dir[File.join(source_path, '*')] - project_logs - project_sessions
+    project_images = project_remainder.select{|a| File.mime_type?(a)[/^image/]}
+    project_others = project_remainder - project_images
 
-    # glasses
-    if session_glasses.empty?
-      log_writer.log_message('INFO',"    #{File.basename(session_folder)} does not contain EyeTracker files; Ignoring.")
+    ###### Project Logs
+    log_writer.log_message('INFO',"  Zipping #{project} logs...")
+    if project_logs.empty?
+      log_writer.log_message('INFO',"    No #{project} logs found; Ignoring.")
     else
-      transfer_name = "eT-SD#{label}-#{File.basename(session_folder)}-GLASSES-#{session_cdate}.zip"
-      session_glasses_zip = calculate_filename(transfer_path, transfer_name)
-      Archive::Zip.archive(session_glasses_zip, session_glasses)
-      log_writer.log_message('INFO',"    Created #{session_glasses_zip} with:")
-      session_glasses.each do |file|
-        log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
+      log_dates = project_logs.collect{|log| File.basename(log)[/^\d{4}-\d{2}-\d{2}/] }.uniq
+
+      log_dates.each do |log_date|
+        log_writer.log_message('INFO',"    Zipping #{project} logs for #{log_date}...")
+        project_log_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{project}-LOGS-#{log_date.gsub('-', '')}.zip")
+        files = project_logs.select{|log| File.basename(log)[/^#{log_date}/] }
+        Archive::Zip.archive(project_log_zip, files)
+        log_writer.log_message('INFO',"      Created #{project_log_zip} with:")
+        files.each do |file|
+          log_writer.log_message('INFO',"        - #{file.gsub(source_path + '/', "")}")
+        end
       end
     end
 
-    #audio
-    if session_audio.empty?
-      log_writer.log_message('INFO',"    #{File.basename(session_folder)} does not contain audio files; Ignoring.")
-    else
-      log_writer.log_message('INFO',"    Copying EyeTracker #{File.basename(session_folder)} audio files...")
-      session_audio.each do |audio|
-        filename = File.basename(audio)
-        extension = File.extname(filename)
-        audio_cdate = File.ctime(audio).strftime("%Y%m%d")
+    puts ""
+    ### End Project Logs
 
-        transfer_name =  filename.gsub(/^/, "eT-SD#{label}-#{File.basename(session_folder)}-INTERVIEW-").sub(extension, "-#{audio_cdate}#{extension}")
-        new_path = calculate_filename(transfer_path,transfer_name)
-        FileUtils.cp audio, new_path
-        log_writer.log_message('INFO',"      - #{audio.gsub(source_path + '/', "")}")
+    ###### Project Images
+    log_writer.log_message('INFO',"  Zipping #{project} images...")
+    if project_images.empty?
+      log_writer.log_message('INFO',"    No #{project} images found; Ignoring.")
+    else
+      project_image_hash = {}
+      project_images.each do |image|
+        created_at = File.ctime(image).strftime("%Y%m%d")
+        project_image_hash[created_at] ||= []
+        project_image_hash[created_at] << image
+      end
+      project_image_hash.each do |cdate,files|
+        log_writer.log_message('INFO',"    Zipping #{project} images for #{cdate}...")
+        project_images_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{project}-IMAGES-#{cdate}.zip")
+        Archive::Zip.archive(project_images_zip, files)
+        log_writer.log_message('INFO',"      Created #{project_images_zip} with:")
+        files.each do |file|
+          log_writer.log_message('INFO',"        - #{file.gsub(source_path + '/', "")}")
+        end
       end
     end
 
-    #image
-    if session_images.empty?
-      log_writer.log_message('INFO',"    #{File.basename(session_folder)} does not contain image files; Ignoring.")
-    else
-      log_writer.log_message('INFO',"    Copying EyeTracker #{File.basename(session_folder)} image files...")
-      session_images.each do |image|
-        filename = File.basename(image)
-        extension = File.extname(filename)
-        image_cdate = File.ctime(image).strftime("%Y%m%d")
+    puts ""
+    ### End Project Images
 
-        transfer_name =  filename.gsub(/^/, "eT-SD#{label}-#{File.basename(session_folder)}-DOCKET-").sub(extension, "-#{image_cdate}#{extension}")
-        new_path = calculate_filename(transfer_path,transfer_name)
-        FileUtils.cp image, new_path
-        log_writer.log_message('INFO',"      - #{image.gsub(source_path + '/', "")}")
+    ###### Project Others
+    log_writer.log_message('INFO',"  Zipping #{project} others...")
+    if project_others.empty?
+      log_writer.log_message('INFO',"    No #{project} others found; Ignoring.")
+    else
+      project_others_cdate = File.ctime(project_logs[0] || project_others[0]).strftime("%Y%m%d")
+      project_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{project}-OTHERS-#{project_others_cdate}.zip")
+      Archive::Zip.archive(project_others_zip, project_others)
+      log_writer.log_message('INFO',"      Created #{project_others_zip} with:")
+      project_others.each do |file|
+        log_writer.log_message('INFO',"        - #{file.gsub(source_path + '/', "")}")
       end
     end
+    puts ""
 
-    #others
-    if session_others.empty?
-      log_writer.log_message('INFO',"    #{File.basename(session_folder)} does not contain other files; Ignoring.")
+    ### End Project Others
+
+    ###### EyeTracker sessions
+    log_writer.log_message('INFO',"  Processing #{project} sessions...")
+
+    if project_sessions.empty?
+      log_writer.log_message('INFO',"    No #{project} sessions found; Ignoring.")
     else
-      session_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{File.basename(session_folder)}-OTHERS-#{session_cdate}.zip")
-      Archive::Zip.archive(session_others_zip, session_others)
-      log_writer.log_message('INFO',"    Created #{session_others_zip} with:")
-      session_others.each do |file|
-        log_writer.log_message('INFO',"      - #{file.gsub(source_path + '/', "")}")
+      project_sessions.each do |session_folder|
+        log_writer.log_message('INFO',"    Processing #{project} #{File.basename(session_folder)}...")
+        session_all = Dir[File.join(session_folder,"*.*")].sort
+
+        session_glasses = Dir[File.join(session_folder,"*.{log,dbg,raw,dat}")].sort
+        session_remainder = session_all - session_glasses
+
+        session_images = session_remainder.select{|a| !File.mime_type?(a)[/^image/].nil?}
+        session_audio = session_remainder.select{|a| !File.mime_type?(a)[/^audio/].nil?}
+        session_others = session_remainder - session_audio - session_images
+
+        session_cdate = File.ctime(session_folder).strftime("%Y%m%d")
+
+        # glasses
+        if session_glasses.empty?
+          log_writer.log_message('INFO',"      #{File.basename(session_folder)} does not contain EyeTracker files; Ignoring.")
+        else
+          transfer_name = "eT-SD#{label}-#{project}-#{File.basename(session_folder)}-GLASSES-#{session_cdate}.zip"
+          session_glasses_zip = calculate_filename(transfer_path, transfer_name)
+          Archive::Zip.archive(session_glasses_zip, session_glasses)
+          log_writer.log_message('INFO',"      Created #{session_glasses_zip} with:")
+          session_glasses.each do |file|
+            log_writer.log_message('INFO',"        - #{file.gsub(source_path + '/', "")}")
+          end
+        end
+
+        #audio
+        if session_audio.empty?
+          log_writer.log_message('INFO',"      #{File.basename(session_folder)} does not contain audio files; Ignoring.")
+        else
+          log_writer.log_message('INFO',"      Copying #{project} #{File.basename(session_folder)} audio files...")
+          session_audio.each do |audio|
+            filename = File.basename(audio)
+            extension = File.extname(filename)
+            audio_cdate = File.ctime(audio).strftime("%Y%m%d")
+
+            transfer_name =  filename.gsub(/^/, "eT-SD#{label}-#{project}-#{File.basename(session_folder)}-INTERVIEW-").sub(extension, "-#{audio_cdate}#{extension}")
+            new_path = calculate_filename(transfer_path,transfer_name)
+            FileUtils.cp audio, new_path
+            log_writer.log_message('INFO',"        - #{audio.gsub(source_path + '/', "")}")
+          end
+        end
+
+        #image
+        if session_images.empty?
+          log_writer.log_message('INFO',"      #{File.basename(session_folder)} does not contain image files; Ignoring.")
+        else
+          log_writer.log_message('INFO',"      Copying #{project} #{File.basename(session_folder)} image files...")
+          session_images.each do |image|
+            filename = File.basename(image)
+            extension = File.extname(filename)
+            image_cdate = File.ctime(image).strftime("%Y%m%d")
+
+            transfer_name =  filename.gsub(/^/, "eT-SD#{label}-#{project}-#{File.basename(session_folder)}-DOCKET-").sub(extension, "-#{image_cdate}#{extension}")
+            new_path = calculate_filename(transfer_path,transfer_name)
+            FileUtils.cp image, new_path
+            log_writer.log_message('INFO',"        - #{image.gsub(source_path + '/', "")}")
+          end
+        end
+
+        #others
+        if session_others.empty?
+          log_writer.log_message('INFO',"      #{File.basename(session_folder)} does not contain other files; Ignoring.")
+        else
+          session_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{project}-#{File.basename(session_folder)}-OTHERS-#{session_cdate}.zip")
+          Archive::Zip.archive(session_others_zip, session_others)
+          log_writer.log_message('INFO',"      Created #{session_others_zip} with:")
+          session_others.each do |file|
+            log_writer.log_message('INFO',"        - #{file.gsub(source_path + '/', "")}")
+          end
+        end
+        log_writer.log_message('INFO',"    #{File.basename(session_folder)} processed.")
+
       end
     end
-    log_writer.log_message('INFO',"  #{File.basename(session_folder)} processed.")
+    puts ""
+
   end
 
-  puts ""
-
   # Remove robocopied files
-  FileUtils.rm_rf source_path
+  FileUtils.rm_rf package_tmp_path
   log_writer.log_message('INFO',"Cleaned temporary folder.")
   puts ""
 
