@@ -125,7 +125,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
 
   tmp_file_path = File.join(File.dirname(__FILE__), '..' , 'tmp', label)
 
-  system "robocopy #{original_source} #{tmp_file_path} /MIR /ZB /COPYALL /XA:SHT /E /DCOPY:T /R:10 /NP /LOG+:robocopy.log /TEE"
+  system *%W(robocopy #{original_source} #{tmp_file_path} /MIR /ZB /COPYALL /XA:SHT /E /DCOPY:T /R:10 /NP /LOG+:robocopy.log /TEE)
 
   puts ""
 
