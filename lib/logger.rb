@@ -17,14 +17,17 @@ class Logger
 
   def log_message(severity, message)
     puts message
-    log_file.printf timestamp
+
+    time = timestamp
+
+    log_file.printf time
     log_file.printf 'ERROR ' if severity == 'ERROR'
     log_file.printf 'INFO  ' if severity == 'INFO'
     log_file.printf 'WARN  ' if severity == 'WARN'
     log_file.printf '' if severity == 'SYM'
     log_file.puts message
 
-    current_output.printf timestamp
+    current_output.printf time
     current_output.printf 'ERROR ' if severity == 'ERROR'
     current_output.printf 'INFO  ' if severity == 'INFO'
     current_output.printf 'WARN  ' if severity == 'WARN'

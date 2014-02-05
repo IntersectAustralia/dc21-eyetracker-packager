@@ -136,7 +136,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   puts ""
 
 
-  root_projects = Dir[File.join(package_tmp_path, '*')].select {|e| File.directory?(e) && File.basename(e).size <= 20}
+  root_projects = Dir[File.join(package_tmp_path, '*')].select {|e| File.directory?(e) && File.basename(e).size <= 20 && !Dir[File.join(e, "Session_*")].empty?}
   root_others = Dir[File.join(package_tmp_path, '*')] - root_projects
 
   ###### Root Others
@@ -144,8 +144,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   if root_others.empty?
     log_writer.log_message('INFO',"  No root others found; Ignoring.")
   else
-    root_others_cdate = File.ctime(root_others[0]).strftime("%Y%m%d")
-    root_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-OTHERS-#{root_others_cdate}.zip")
+    root_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-OTHERS.zip")
     Archive::Zip.archive(root_others_zip, root_others)
     log_writer.log_message('INFO',"    Created #{root_others_zip} with:")
     root_others.each do |file|
@@ -157,6 +156,8 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
   ### End Root Others
 
   ### Process Each Project
+  log_writer.log_message('INFO',"Processing projects with session folders...")
+
   root_projects.each do |source_path|
 
     project = File.basename(source_path)
@@ -178,17 +179,16 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     if project_logs.empty?
       log_writer.log_message('INFO',"    No #{project} logs found; Ignoring.")
     else
-      log_dates = project_logs.collect{|log| File.basename(log)[/^\d{4}-\d{2}-\d{2}/] }.uniq
 
-      log_dates.each do |log_date|
-        log_writer.log_message('INFO',"    Zipping #{project} logs for #{log_date}...")
-        project_log_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{project}-LOGS-#{log_date.gsub('-', '')}.zip")
-        files = project_logs.select{|log| File.basename(log)[/^#{log_date}/] }
-        Archive::Zip.archive(project_log_zip, files)
-        log_writer.log_message('INFO',"      Created #{project_log_zip} with:")
-        files.each do |file|
-          log_writer.log_message('INFO',"        - #{file.gsub(source_path + '/', "")}")
-        end
+      log_writer.log_message('INFO',"    Zipping #{project} logs...")
+      project_log_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{project}-LOGS.zip")
+
+      files = project_logs
+      Archive::Zip.archive(project_log_zip, files)
+
+      log_writer.log_message('INFO',"      Created #{project_log_zip} with:")
+      files.each do |file|
+        log_writer.log_message('INFO',"        - #{file.gsub(source_path + '/', "")}")
       end
     end
 
@@ -225,8 +225,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
     if project_others.empty?
       log_writer.log_message('INFO',"    No #{project} others found; Ignoring.")
     else
-      project_others_cdate = File.ctime(project_logs[0] || project_others[0]).strftime("%Y%m%d")
-      project_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{project}-OTHERS-#{project_others_cdate}.zip")
+      project_others_zip = calculate_filename(transfer_path,"eT-SD#{label}-#{project}-OTHERS.zip")
       Archive::Zip.archive(project_others_zip, project_others)
       log_writer.log_message('INFO',"      Created #{project_others_zip} with:")
       project_others.each do |file|
@@ -317,6 +316,7 @@ def extract_sessions(transfer_path, log_writer, interactive = false)
         log_writer.log_message('INFO',"    #{File.basename(session_folder)} processed.")
 
       end
+      puts ""
     end
     puts ""
 
